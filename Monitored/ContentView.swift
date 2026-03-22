@@ -8,6 +8,7 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
+            AppBackground(state: petState)
             VStack(spacing: 0) {
                 
                 // 🐭 HEADER (прибит к верху)
