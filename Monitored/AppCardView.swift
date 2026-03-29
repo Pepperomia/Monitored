@@ -10,6 +10,8 @@ enum AppStatus {
 struct AppCardView: View {
     
     let app: MonitoredApp
+    let now: Date   // 🔥 ВАЖНО — приходит сверху
+    
     let onBuild: () -> Void
     let onTogglePause: () -> Void
     let onShowLogs: () -> Void
@@ -24,7 +26,7 @@ struct AppCardView: View {
             
             HStack(alignment: .center, spacing: 12) {
                 
-                // 🧊 ИКОНКА (стабильная!)
+                // 🧊 ИКОНКА
                 appIcon
                 
                 // 📝 ТЕКСТ
@@ -32,7 +34,6 @@ struct AppCardView: View {
                     Text(app.name)
                         .font(.headline)
                         .lineLimit(1)
-                        .truncationMode(.tail)
                     
                     Text(statusText)
                         .font(.caption)
@@ -73,14 +74,14 @@ struct AppCardView: View {
                             backing: .buffered,
                             defer: false
                         )
-
+                        
                         window.center()
                         window.title = "Logs"
                         window.contentView = NSHostingView(rootView: LogsView())
-
+                        
                         logsWindow = window
                     }
-
+                    
                     logsWindow?.makeKeyAndOrderFront(nil)
                 }
                 
@@ -124,7 +125,7 @@ struct AppCardView: View {
         }
     }
     
-    // MARK: - ICON (💎 ВОТ ЗДЕСЬ ВСЯ МАГИЯ)
+    // MARK: - ICON
     
     private var appIcon: some View {
         ZStack {
@@ -140,18 +141,16 @@ struct AppCardView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .frame(width: 40, height: 40) // 🔒 фиксируем размер
+        .frame(width: 40, height: 40)
         .background(Color.white.opacity(0.08))
         .cornerRadius(10)
         .clipped()
     }
     
     private func loadIcon() -> NSImage? {
-        
         let cleaned = cleanPath(app.iconPath)
         
         guard FileManager.default.fileExists(atPath: cleaned) else {
-            print("❌ файл не найден:", cleaned)
             return nil
         }
         
@@ -175,7 +174,13 @@ struct AppCardView: View {
     
     private var progress: Double {
         guard let last = app.lastSignedDate else { return 0 }
-        let days = Calendar.current.dateComponents([.day], from: last, to: Date()).day ?? 0
+        
+        let days = Calendar.current.dateComponents(
+            [.day],
+            from: last,
+            to: now   // 🔥 ВОТ ГДЕ МАГИЯ
+        ).day ?? 0
+        
         return max(0, min(1, Double(7 - days) / 7))
     }
     

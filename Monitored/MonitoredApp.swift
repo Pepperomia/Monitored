@@ -9,7 +9,7 @@ struct MonitoredApp: Identifiable, Codable {
     var projectPath: String
     var bundleId: String
     
-    var iconPath: String   // 👈 теперь вместо appPath
+    var iconPath: String  
     
     var lastSignedDate: Date?
     var isPaused: Bool

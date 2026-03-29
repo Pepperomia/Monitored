@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct AddAppView: View {
     
@@ -13,7 +14,7 @@ struct AddAppView: View {
     @State private var scheme = ""
     @State private var projectPath = ""
     @State private var bundleId = ""
-    @State private var iconPath = ""   // 👈 новое поле
+    @State private var iconPath = ""
     
     var body: some View {
         VStack(spacing: 16) {
@@ -72,4 +73,5 @@ struct AddAppView: View {
         onSave(app)
         dismiss()
     }
+    
 }

@@ -1,30 +1,33 @@
 import SwiftUI
+import Combine
 
 struct ContentView: View {
     
     @StateObject private var vm = AppsViewModel()
+    @State private var now = Date()
     
     @State private var activeSheet: ActiveSheet?
     
     var body: some View {
         ZStack {
             AppBackground(state: petState)
+            
             VStack(spacing: 0) {
                 
-                // 🐭 HEADER (прибит к верху)
+                // 🐭 HEADER
                 PetView(state: petState)
+                    .id(petState)
+                    .frame(height: 220)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
                 
-                .frame(height: 220)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
-                
-                
-                // 📜 SCROLL (занимает всё свободное место)
+                // 📜 LIST
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(vm.apps) { app in
                             AppCardView(
                                 app: app,
+                                now: now,
                                 onBuild: {
                                     BuildService.run(app: app)
                                 },
@@ -40,11 +43,11 @@ struct ContentView: View {
                     }
                     .padding(16)
                 }
-                .frame(maxHeight: .infinity) // 🔥 ВАЖНО
+                .frame(maxHeight: .infinity)
                 
                 Divider()
                 
-                // ➕ FOOTER (всегда снизу)
+                // ➕ FOOTER
                 Button(action: {
                     activeSheet = .add
                 }) {
@@ -61,21 +64,32 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .padding(16)
             }
-            
-            // 🧾 Логи
         }
-        .frame(minWidth: 520, minHeight: 600)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // ⏱ ОБНОВЛЕНИЕ ВРЕМЕНИ
+        .onReceive(
+            Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+        ) { _ in
+            now = Date()
+        }
         
-        // 📄 ЕДИНЫЙ SHEET
+        // 🚀 СТАРТ МОНИТОРА (ВАЖНО — ТУТ)
+        .onAppear {
+            MonitorService.shared.start {
+                vm.apps
+            }
+        }
+        
+        .frame(minWidth: 520, minHeight: 600)
+        
+        // 📄 SHEET
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
                 
             case .add:
-                AddAppView(onSave: { newApp in
+                AddAppView { newApp in
                     vm.addApp(newApp)
                     activeSheet = nil
-                })
+                }
                 
             case .edit(let app):
                 AddAppView(existingApp: app) { updatedApp in
@@ -86,62 +100,70 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Pet State
+    // MARK: - 🐭 Pet State
     
     private var petState: PetState {
         
-        if vm.apps.allSatisfy({ $0.isPaused }) {
+        let activeApps = vm.apps.filter { !$0.isPaused }
+        
+        if activeApps.isEmpty {
             return .sleeping
         }
         
-        if vm.apps.contains(where: isExpired) {
+        let states = activeApps.map { appStatus($0) }
+        
+        if states.contains(.expired) {
             return .panic
         }
         
-        if vm.apps.contains(where: isWarning) {
+        if states.contains(.warning) {
             return .warning
         }
         
-        // 🎉 ВСЕ ОБНОВЛЕНЫ СЕГОДНЯ
-        if vm.apps.allSatisfy({ isFresh($0) }) {
-            return .party
+        if states.allSatisfy({ $0 == .healthy }) {
+            if activeApps.allSatisfy({ isFresh($0) }) {
+                return .party
+            }
+            return .happy
         }
+        
         return .happy
+    }
+    
+    private func appStatus(_ app: MonitoredApp) -> AppStatus {
+        
+        guard let last = app.lastSignedDate else {
+            return .expired
+        }
+        
+        let days = Calendar.current.dateComponents([.day], from: last, to: now).day ?? 0
+        
+        if days >= 7 { return .expired }
+        if days >= 5 { return .warning }
+        
+        return .healthy
     }
     
     private func isFresh(_ app: MonitoredApp) -> Bool {
         guard let last = app.lastSignedDate else { return false }
         
-        let hours = Calendar.current.dateComponents([.hour], from: last, to: Date()).hour ?? 0
+        let hours = now.timeIntervalSince(last) / 3600
         
         return hours < 3
     }
-    
-    private func isExpired(_ app: MonitoredApp) -> Bool {
-        guard let last = app.lastSignedDate else { return true }
-        let days = Calendar.current.dateComponents([.day], from: last, to: Date()).day ?? 0
-        return days >= 7
-    }
-    
-    private func isWarning(_ app: MonitoredApp) -> Bool {
-        guard let last = app.lastSignedDate else { return false }
-        let days = Calendar.current.dateComponents([.day], from: last, to: Date()).day ?? 0
-        return days >= 5
-    }
-}
+    // MARK: - Sheet State
 
-// MARK: - Sheet State
-
-enum ActiveSheet: Identifiable {
-    case add
-    case edit(MonitoredApp)
-    
-    var id: String {
-        switch self {
-        case .add:
-            return "add"
-        case .edit(let app):
-            return app.id.uuidString
+    enum ActiveSheet: Identifiable {
+        case add
+        case edit(MonitoredApp)
+        
+        var id: String {
+            switch self {
+            case .add:
+                return "add"
+            case .edit(let app):
+                return app.id.uuidString
+            }
         }
     }
 }

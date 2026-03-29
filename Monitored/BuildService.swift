@@ -42,8 +42,6 @@ class BuildService {
         echo "INSTALL ATTEMPT FINISHED"
         """
         
-        print("🔥 COMMAND:\n\(command)")
-        
         process.arguments = ["-c", command]
         
         let pipe = Pipe()
@@ -51,7 +49,7 @@ class BuildService {
         process.standardError = pipe
         
         var outputBuffer = ""
-        var didSendResult = false   // 🧠 защита от дублей
+        var didFinish = false
         
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -62,11 +60,11 @@ class BuildService {
             outputBuffer += text
             print(text)
             
-            // ✅ УСПЕХ (реальный)
-            if !didSendResult &&
+            // ✅ УСПЕХ — ТОЛЬКО если реально установилось
+            if !didFinish &&
                 (text.contains("InstallComplete") || text.contains("Installed package")) {
                 
-                didSendResult = true
+                didFinish = true
                 
                 DispatchQueue.main.async {
                     notifyDone(app: app)
@@ -78,10 +76,9 @@ class BuildService {
                 }
             }
             
-            // ❌ СБОЙ СБОРКИ
-            if !didSendResult && text.contains("BUILD FAILED") {
-                
-                didSendResult = true
+            // ❌ ошибка сборки
+            if !didFinish && text.contains("BUILD FAILED") {
+                didFinish = true
                 
                 DispatchQueue.main.async {
                     notifyError(app: app)
@@ -93,22 +90,21 @@ class BuildService {
             DispatchQueue.main.async {
                 print("🏁 Процесс завершён")
                 
-                // fallback если ничего не поймали
-                if !didSendResult {
+                if didFinish { return }
+                
+                // fallback (если stdout странный)
+                if outputBuffer.contains("InstallComplete") ||
+                    outputBuffer.contains("Installed package") {
                     
-                    if outputBuffer.contains("InstallComplete") ||
-                        outputBuffer.contains("Installed package") {
-                        
-                        notifyDone(app: app)
-                        
-                        NotificationCenter.default.post(
-                            name: .didUpdateAppDate,
-                            object: app.id
-                        )
-                        
-                    } else {
-                        notifyError(app: app)
-                    }
+                    notifyDone(app: app)
+                    
+                    NotificationCenter.default.post(
+                        name: .didUpdateAppDate,
+                        object: app.id
+                    )
+                    
+                } else {
+                    notifyError(app: app)
                 }
             }
         }
@@ -130,7 +126,7 @@ class BuildService {
     static func notifyDone(app: MonitoredApp) {
         let content = UNMutableNotificationContent()
         content.title = "Готово! 🎉"
-        content.body = "\(app.name) успешно обновлено"
+        content.body = "\(app.name) обновлено"
         content.sound = .default
         
         send(content)
@@ -138,11 +134,9 @@ class BuildService {
     
     static func notifyError(app: MonitoredApp) {
         let content = UNMutableNotificationContent()
-        content.title = "Ошибка! 😬"
+        content.title = "Ошибка 😬"
         content.body = "Не удалось обновить \(app.name)"
         content.sound = .default
-        
-        addAppIconToNotification(content: content)
         
         send(content)
     }
@@ -154,56 +148,7 @@ class BuildService {
             trigger: nil
         )
         
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("❌ Ошибка: \(error.localizedDescription)")
-            } else {
-                print("✅ Уведомление отправлено: \(content.title)")
-            }
-        }
-    }
-    
-    // MARK: - App Icon
-    
-    private static func addAppIconToNotification(content: UNMutableNotificationContent) {
-        
-        let appPath = Bundle.main.bundlePath
-        let appIcon = NSWorkspace.shared.icon(forFile: appPath)
-        
-        if let url = saveIconToTemp(icon: appIcon) {
-            if let attachment = try? UNNotificationAttachment(
-                identifier: "monitored_icon",
-                url: url,
-                options: nil
-            ) {
-                content.attachments = [attachment]
-            }
-        }
-    }
-    
-    private static func saveIconToTemp(icon: NSImage) -> URL? {
-        
-        let targetSize = NSSize(width: 128, height: 128)
-        let resizedIcon = NSImage(size: targetSize)
-        
-        resizedIcon.lockFocus()
-        icon.draw(in: NSRect(origin: .zero, size: targetSize),
-                  from: NSRect(origin: .zero, size: icon.size),
-                  operation: .copy,
-                  fraction: 1.0)
-        resizedIcon.unlockFocus()
-        
-        guard let tiffData = resizedIcon.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:])
-        else { return nil }
-        
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".png")
-        
-        try? pngData.write(to: url)
-        
-        return url
+        UNUserNotificationCenter.current().add(request)
     }
     
     // MARK: - Device
@@ -229,12 +174,6 @@ class BuildService {
     // MARK: - Utils
     
     private static func cleanPath(_ path: String) -> String {
-        path
-            .replacingOccurrences(of: "\"", with: "")
-            .replacingOccurrences(of: "'", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-    func cleanPath(_ path: String) -> String {
         path
             .replacingOccurrences(of: "\"", with: "")
             .replacingOccurrences(of: "'", with: "")

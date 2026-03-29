@@ -10,6 +10,15 @@ class MonitorService {
     private var isRunning = false
     private var appsProvider: (() -> [MonitoredApp])?
     
+    init() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBuildFinished),
+            name: .didUpdateAppDate,
+            object: nil
+        )
+    }
+    
     // MARK: - Start
     
     func start(appsProvider: @escaping () -> [MonitoredApp]) {
@@ -41,8 +50,7 @@ class MonitorService {
             
             print("🔍", app.name, "next:", nextUpdate)
             
-            // ПРАВИЛЬНЫЙ ТРИГГЕР
-            if Date() >= nextUpdate {
+            if Date() >= nextUpdate && !isRunning {
                 triggerUpdate(app: app)
             }
         }
@@ -50,16 +58,13 @@ class MonitorService {
     
     private func triggerUpdate(app: MonitoredApp) {
         
-        if isRunning {
-            print("⏳ уже выполняется")
-            return
-        }
-        
-        print("🚀 старт обновления:", app.name)
+        if isRunning { return }
         
         isRunning = true
         
-        notifyNeedUpdate(app: app) // 👈 передаём app
+        print("🚀 старт обновления:", app.name)
+        
+        notifyNeedUpdate(app: app)
         waitForDeviceAndRun(app: app)
     }
     
@@ -77,81 +82,28 @@ class MonitorService {
             
             DispatchQueue.main.async {
                 BuildService.run(app: app)
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                    
-                    self.isRunning = false
-                }
             }
         }
     }
     
+    // MARK: - Finish (🔥 КЛЮЧЕВОЕ)
+    
+    @objc private func handleBuildFinished(_ notification: Notification) {
+        
+        guard let id = notification.object as? UUID else { return }
+        
+        print("🏁 билд завершён для:", id)
+        
+        isRunning = false
+    }
+    
     // MARK: - Notifications
-
+    
     private func notifyNeedUpdate(app: MonitoredApp) {
         
         let content = UNMutableNotificationContent()
         content.title = "Пора обновить"
         content.body = "\(app.name) требует обновления 📱"
-        
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        
-        UNUserNotificationCenter.current().add(request)
-        
-        print("🔔 need update:", app.name)
-    }
-
-
-    private func notifyDone(app: MonitoredApp) {
-        
-        let content = UNMutableNotificationContent()
-        content.title = "Готово!"
-        content.body = "\(app.name) обновлено 🎉"
-        
-        // 📦 Берём ИКОНКУ ИЗ ФАЙЛА
-        let path = app.iconPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if FileManager.default.fileExists(atPath: path),
-           let image = NSImage(contentsOfFile: path),
-           let tiffData = image.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let pngData = bitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) {
-            
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("\(UUID().uuidString).png")
-            
-            try? pngData.write(to: url)
-            
-            if let attachment = try? UNNotificationAttachment(
-                identifier: "icon",
-                url: url,
-                options: nil
-            ) {
-                content.attachments = [attachment]
-            }
-        }
-        
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-        
-        UNUserNotificationCenter.current().add(request)
-        
-        print("🔔 done:", app.name)
-    }
-    
-    // MARK: - Test
-    
-    func testNotification() {
-        let content = UNMutableNotificationContent()
-        content.title = "Тест"
-        content.body = "Если ты это видишь — всё работает 🎉"
         
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(
@@ -160,5 +112,7 @@ class MonitorService {
                 trigger: nil
             )
         )
+        
+        print("🔔 need update:", app.name)
     }
 }
